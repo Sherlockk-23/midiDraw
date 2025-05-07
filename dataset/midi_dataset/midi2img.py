@@ -57,6 +57,7 @@ def midi2img(midi_data, min_duration_unit, pad=6, shape=(88, 88)):
         img = np.pad(img, ((pad, pad), (pad, pad)), 'constant', constant_values=0)
         
     img = img.clip(0,1)
+    # img = img.clip(0, 255)
 
     return img
 
@@ -106,15 +107,23 @@ def img2midi(img, min_duration_unit, pad=12):
     midi_data.instruments.append(instrument)
     return midi_data
 
-def filter_imgs(imgs, sum_interval=[200, 1000]):
+def filter_imgs(imgs, sum_interval=[200, 1000], min_pitches = 15):
     """
     过滤图片，保留像素和在指定范围内的图片。
     """
     filtered_imgs = []
     for img in imgs:
-        if (img.sum()) > sum_interval[0] and (img.sum()) < sum_interval[1]:
-            # print("img sum:", img.sum())
-            filtered_imgs.append(img)
+        if (img.sum()) < sum_interval[0] or (img.sum()) > sum_interval[1]:
+            continue
+        reshape_img = img.reshape(100, 100)
+        cnt_pitches = 0
+        for i in range(reshape_img.shape[0]):
+            if reshape_img[i].sum() > 5:
+                cnt_pitches += 1
+        if cnt_pitches < min_pitches:
+            continue
+        filtered_imgs.append(img)
+            
     return filtered_imgs
 
 def play_midi(file):
@@ -176,26 +185,26 @@ if __name__ == "__main__":
         if file.endswith(".mid"):
             cnt+=1 
             print(cnt, file)
-            if cnt > 200:
+            if cnt > 20:
                 break
             midi_path = os.path.join(path, file)
             midi_data = pretty_midi.PrettyMIDI(midi_path)
             midi_datas.append(midi_data)
     print("MIDI files loaded:", len(midi_datas))
     
-    midi_datas = midi_datas[:3]
+    # midi_datas = midi_datas[:3]
     
     raw_imgs = []
     
     for midi_data in midi_datas:
-        for st_seconds in range(0, 10, 5):
+        for st_seconds in range(5, 40, 10):
             cut_midi_data = cut_midi(midi_data, st_seconds, st_seconds+10)
             img = midi2img(cut_midi_data, min_duration_unit=0.1136, pad=6, shape=(88, 88))
             raw_imgs.append(img)
     print("Raw images:", len(raw_imgs))
     print("Raw images shape:", raw_imgs[0].shape)
     # filter images
-    filtered_imgs = filter_imgs(raw_imgs, sum_interval=[200, 1000])
+    filtered_imgs = filter_imgs(raw_imgs, sum_interval=[200, 1000], min_pitches=15)
     # filtered_imgs = raw_imgs
     print("Filtered images:", len(filtered_imgs))
     
