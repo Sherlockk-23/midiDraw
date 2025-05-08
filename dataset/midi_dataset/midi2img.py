@@ -184,9 +184,9 @@ if __name__ == "__main__":
     for file in os.listdir(path):
         if file.endswith(".mid"):
             cnt+=1 
+            # if cnt > 5:
+            #     break
             print(cnt, file)
-            if cnt > 20:
-                break
             midi_path = os.path.join(path, file)
             midi_data = pretty_midi.PrettyMIDI(midi_path)
             midi_datas.append(midi_data)
@@ -197,10 +197,14 @@ if __name__ == "__main__":
     raw_imgs = []
     
     for midi_data in midi_datas:
-        for st_seconds in range(5, 40, 10):
+        end_time = int(midi_data.get_end_time())
+        for st_seconds in range(5, end_time-10, 10):
             cut_midi_data = cut_midi(midi_data, st_seconds, st_seconds+10)
             img = midi2img(cut_midi_data, min_duration_unit=0.1136, pad=6, shape=(88, 88))
             raw_imgs.append(img)
+    num_datas = 100_000
+    raw_imgs = raw_imgs[:5*num_datas]        
+    
     print("Raw images:", len(raw_imgs))
     print("Raw images shape:", raw_imgs[0].shape)
     # filter images
@@ -208,9 +212,16 @@ if __name__ == "__main__":
     # filtered_imgs = raw_imgs
     print("Filtered images:", len(filtered_imgs))
     
+    filtered_imgs = np.array(filtered_imgs)
+    num_datas = 100_000
+    filtered_imgs = filtered_imgs[:num_datas]
+    
+    # convert to 255
+    filtered_imgs = (filtered_imgs * 255).astype(np.uint8)
+    
     # save the filtered images to a file
     print("Saving filtered images to file...")
-    np.save('filtered_midi_imgs.npy', filtered_imgs)
+    np.save('filtered_midi_imgs_small.npy', filtered_imgs)
     print("Saved.")
     
     # visualize the images

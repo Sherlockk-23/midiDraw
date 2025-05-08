@@ -129,6 +129,8 @@ print("Filtered images:", len(filtered_images))
 # plt.show()
 # plt.savefig("quickdraw.png")
 
+filtered_images = np.array(filtered_images).reshape(-1, 100, 100).astype(np.uint8)
+
 # save the raster images to a file
 print("Saving raster images to file...")
 np.save('eye_100.npy', filtered_images)
