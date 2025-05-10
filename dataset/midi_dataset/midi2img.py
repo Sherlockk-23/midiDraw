@@ -29,7 +29,7 @@ def cut_midi(midi_data, start_time, end_time):
     return cut_midi
 
 
-def midi2img(midi_data, min_duration_unit, pad=6, shape=(88, 88)):
+def midi2img(midi_data, min_duration_unit=0.1136, pad=6, shape=(88, 88)):
     """
     将 MIDI 文件转换为图片。
     """
@@ -41,15 +41,20 @@ def midi2img(midi_data, min_duration_unit, pad=6, shape=(88, 88)):
     # 遍历 MIDI 文件中的音符
     for instrument in midi_data.instruments:
         for note in instrument.notes:
+            if note.velocity < 10:
+                continue
             nstart = note.start
             pstart = int(nstart / min_duration_unit)
             nend = note.end
             pend = int(nend / min_duration_unit)
             if note.pitch-21 < 0 or note.pitch-21 > shape[0]-1:
                 continue
+            if pstart > shape[1]:
+                continue
             if pend > shape[1]:
                 pend = shape[1]
             # img[note.pitch-21, pstart:pend] = note.velocity / 127.0
+            
             img[note.pitch-21, pstart:pend] = 1
             
     # padding
@@ -61,7 +66,7 @@ def midi2img(midi_data, min_duration_unit, pad=6, shape=(88, 88)):
 
     return img
 
-def img2midi(img, min_duration_unit, pad=12):
+def img2midi(img, min_duration_unit=0.1136, pad=6):
     """
     将图片转换为 MIDI 文件。
     """
@@ -184,8 +189,8 @@ if __name__ == "__main__":
     for file in os.listdir(path):
         if file.endswith(".mid"):
             cnt+=1 
-            # if cnt > 5:
-            #     break
+            if cnt > 3000:
+                break
             print(cnt, file)
             midi_path = os.path.join(path, file)
             midi_data = pretty_midi.PrettyMIDI(midi_path)
@@ -202,7 +207,7 @@ if __name__ == "__main__":
             cut_midi_data = cut_midi(midi_data, st_seconds, st_seconds+10)
             img = midi2img(cut_midi_data, min_duration_unit=0.1136, pad=6, shape=(88, 88))
             raw_imgs.append(img)
-    num_datas = 100_000
+    num_datas = 10_000
     raw_imgs = raw_imgs[:5*num_datas]        
     
     print("Raw images:", len(raw_imgs))
@@ -213,7 +218,7 @@ if __name__ == "__main__":
     print("Filtered images:", len(filtered_imgs))
     
     filtered_imgs = np.array(filtered_imgs)
-    num_datas = 100_000
+    num_datas = 10_000
     filtered_imgs = filtered_imgs[:num_datas]
     
     # convert to 255
@@ -221,7 +226,7 @@ if __name__ == "__main__":
     
     # save the filtered images to a file
     print("Saving filtered images to file...")
-    np.save('filtered_midi_imgs_small.npy', filtered_imgs)
+    np.save('filtered_midi_imgs_10_000.npy', filtered_imgs)
     print("Saved.")
     
     # visualize the images
