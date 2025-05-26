@@ -7,7 +7,7 @@ import random
 
 """
 instrument: Only one instrument in this dataset.
-pitch: 21-108, with a range of 88 keys.
+pitch: 21-108, with a range of 88 keys. (infact, 0-127)
 velocity: 0-127, Meaning Force of the note.
 duration: 0.05-5.0, drop those out of range. 
 
