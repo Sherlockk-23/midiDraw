@@ -274,26 +274,43 @@ def melody_chords2song_f(melody_chords_f):
 
 def cast_img_to_input(img):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    img = 255-img
+
+    # img = 255-img
+    img_sum = img.sum()
+    if img_sum > (225*img.shape[0]*img.shape[1])//2:
+        print("Image is too bright, inverting it")
+        img = 255 - img
+
+    min_y = img.shape[0]
+    min_x = img.shape[1]
+    max_x = 0
+    max_y = 0
+    for y in range(img.shape[0]):
+        for x in range(img.shape[1]):
+            if img[y, x] >0:
+                if y < min_y:
+                    min_y = y
+                if y > max_y:
+                    max_y = y
+                if x < min_x:
+                    min_x = x
+                if x > max_x:
+                    max_x = x
+    img = img[max(0, min_y-10):min(max_y+10, img.shape[0]), min_x:max_x]
+
     h, w = img.shape
-    
-    # find four corners of the image
-    left = min([i for i in range(w) if img[:, i].sum() > 0])
-    right = max([i for i in range(w) if img[:, i].sum() > 0])
-    top = min([i for i in range(h) if img[i, :].sum() > 0])
-    bottom = max([i for i in range(h) if img[i, :].sum() > 0])
-    img = img[top:bottom, left:right]
-    h, w = img.shape
-    
-    
+
     img = cv2.resize(img, (w*50//h, 50))
     h, w = img.shape
-    img = cv2.resize(img, (int(w), h))
-    if w > 200:
+    img = cv2.resize(img, (int(w*2), h))
+    if w*2 > 200:
         print("Image is too wide, cutting it to be thinner")
         img = img[:, :200]
     # upside down
     img = cv2.flip(img, 0)
+
+
+
     return img
 
 def generate_with_img(model, melody_chords_f, img, ctx, 
@@ -304,7 +321,8 @@ def generate_with_img(model, melody_chords_f, img, ctx,
                       number_of_memory_tokens=7203,
                       allow_model_to_stop_generation_if_needed=False,
                       try_to_generate_outro=False,
-                      try_to_introduce_drums=False):
+                      try_to_introduce_drums=False,
+                      only_out = False):
 
     if allow_model_to_stop_generation_if_needed:
         min_stop_token = 19462
@@ -333,6 +351,8 @@ def generate_with_img(model, melody_chords_f, img, ctx,
 
     # to grey
     img = cast_img_to_input(img)
+    # ori_img = img.clone()
+    ori_img = copy.deepcopy(img)
 
     with ctx:
         with torch.inference_mode():
@@ -344,7 +364,11 @@ def generate_with_img(model, melody_chords_f, img, ctx,
                                 return_prime=False,
                                 eos_token=min_stop_token,
                                 verbose=True)
-    return out, img
+            
+    if only_out:
+        return out
+    else:
+        return out, img, ori_img
 
 
 def generate_without_img(model, melody_chords_f, ctx, 

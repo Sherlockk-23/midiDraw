@@ -604,11 +604,43 @@ class AutoregressiveWrapper(Module):
         
         # [MY] init pointers 
         # [0,256], [256, 2304], [2304, 2304+128]
-        middle_y = 2304 + 65 
-        img_px, img_py = find_nxt_pixel(img, 0, 0)
+        default_middle_y = 2304 + 65 
+        # if prompts[0,-4] > 2304+20 and prompts[0,-4] < 2304+80:
+        #     middle_y = prompts[0,-4]
+        middle_y = 0
+        cnt_cal_middle = 0
+        for i in range(2, len(prompts[0])-1, 3):
+            if prompts[0, i] > 2304 and prompts[0, i] < 2304 + 128:
+                middle_y += prompts[0, i]
+                cnt_cal_middle += 1
+        if cnt_cal_middle > 0:
+            middle_y = int(middle_y // cnt_cal_middle)
+        middle_y = max(middle_y, default_middle_y-15)
+        middle_y = min(middle_y, default_middle_y+15)
+        print("middle_y:", middle_y, "cnt_cal_middle:", cnt_cal_middle)
+
+
+        ave_dur = 0 
+        dur_cnt = 0
+        for i in range(1, len(prompts[0])-1, 3):
+            if prompts[0, i] > 256 and prompts[0, i] < 2304:
+                ave_dur += ((prompts[0, i]-256)//8)*16
+                dur_cnt += 1
+        if dur_cnt > 0:
+            ave_dur = int(ave_dur // dur_cnt)
+
+        print("ave_dur:", ave_dur)
+
+
+
+        img_px, img_py = find_nxt_pixel(img, 0, img_H)
         added_x = img_px
         ntime = 0
         ndur = 0
+        npit = 108
+        handle_none =False
+
+        num_midis_same_time = 0
 
         for sl in range(seq_len):
 
@@ -657,30 +689,58 @@ class AutoregressiveWrapper(Module):
             # [MY] here to reweight logists
             print("="*70)
             print("sl:", sl)
-            print("img_px:", img_px, "img_py:", img_py, "ntime:", ntime)
+            print("img_px:", img_px, "img_py:", img_py, "ntime:", ntime, "ndur:", ndur, "npit:", npit)
             gen = False
             if img_px != None:
-                gen = True
-                if sl%3==0:
-                    pass
-                    if added_x !=0:
-                        logits[0, :5] *=-10
+                now_x = int(ntime/1000*4)
+                if img_px > now_x:
+                    if img_px - now_x > 10:
+                        print("in branch 1")
+                        pass
+                    elif sl%3==0:
+                        print("in branch 2")
+                        logits[0, :5] *= -10 # force a jump
+                elif img_px < now_x:
+                    print("in branch 3")
+                    while img_px < now_x:
+                        img_px, img_py = find_nxt_pixel(img, img_px, img_py)
+                        if img_px == None:
+                            break
+                if img_px == now_x:
+                    if sl%3==0:
+                        print("in branch 4")
+                        if num_midis_same_time <=5:
+                            logits[0, :3] *=10 # force unmove
+                        else:
+                            logits[0, :3] *= -10 # force a jump
+                    elif sl%3==1:
+                        print("in branch 5")
+                        pass
+                        # [TODO]
                     else:
-                        logits[0, :5] *=10
-                elif sl%3==1:
-                    pass
-                    # [TODO]
-                else:
-                    if torch.rand(1) < 1:
-                        gen = True
-                        tar_y = img_py - (img_H//2) + middle_y
-                        logits[:, tar_y-3:tar_y+3] *= 10
-                        new_img_px, new_img_py, _ = get_next_pos(img, img_px, img_py+1)
-                        new_img_px, new_img_py = find_nxt_pixel(img, new_img_px, new_img_py)
-                        if new_img_px != None:
-                            added_x = new_img_px - img_px
-                        img_px, img_py = new_img_px, new_img_py
-
+                        if img_py<=npit:
+                            print("in branch 6")
+                            if torch.rand(1) < 0.95:
+                                tar_y = img_py - (img_H//2) + middle_y
+                                logits[:, tar_y-1:tar_y+3] *= 10
+                                new_img_px, new_img_py, _ = get_next_pos(img, img_px, img_py-1)
+                                new_img_px, new_img_py = find_nxt_pixel(img, new_img_px, new_img_py)
+                                if new_img_px != None:
+                                    added_x = new_img_px - img_px
+                                img_px, img_py = new_img_px, new_img_py
+                        else:
+                            print("in branch 7")
+                            new_img_px, new_img_py = find_nxt_pixel(img, img_px, img_py)
+                            while new_img_px == now_x and new_img_py > npit:
+                                new_img_px, new_img_py = find_nxt_pixel(img, new_img_px, new_img_py)
+                                if new_img_px == None:
+                                    break
+                            if new_img_px != None:
+                                added_x = new_img_px - img_px
+            elif handle_none == False:
+                if sl%3 == 0:
+                    logits[0,:10]*=-10 # force a jump
+                    handle_none = True
             # filter by top_k, top_p (nucleus), top_a, or custom
 
             filtered_logits = filter_logits_fn(logits, **filter_kwargs)
@@ -690,16 +750,26 @@ class AutoregressiveWrapper(Module):
             sample = torch.multinomial(probs, 1)
             
             # [MY] here utilize output
-            if img_px != None and gen:
+            if True:
                 if sl%3==0:
                     ntime += sample[0] * 16
+                    ntime = int(ntime)
+                    if sample[0]!=0:
+                        npit = 108
+                        num_midis_same_time = 0
+                    else:
+                        num_midis_same_time += 1
                     # [TBD]
                 elif sl%3==1:
-                    dur = ((sample[0]-256) // 8) * 16
+                    ndur = ((sample[0]-256) // 8) * 16
+                    ndur = (int(ndur))
                 else:
+                    if sample[0]< 2304 or sample[0] > 2304 + 128:
+                        continue
                     draw_y = sample[0] -middle_y + img_H//2
-                    img[draw_y, int(ntime/1000):int((ntime+dur)/1000)] = 0
-                    print("drawing in img at:", draw_y, int(ntime/1000), int((ntime+dur)/1000))
+                    npit = int(draw_y)
+                    img[draw_y-2:draw_y+3, int(ntime/1000*4):int((ntime+ndur)/1000*4)+1] = 0
+                    print("drawing in img at:", draw_y, int(ntime/1000*4), int((ntime+ndur)/1000*4))
             
 
             out = torch.cat((out, sample), dim=-1)
@@ -2693,12 +2763,12 @@ class XTransformer(nn.Module):
 
 def get_next_pos(img, ox, oy):
     # from (ox, oy), in order ox+1, then oy+1, return nx, ny where img[nx, ny] is not 0
-    ny, nx = oy+1, ox
+    ny, nx = oy-1, ox
     x_plus = 0
     # print(img.shape)
     img_H, img_W = img.shape[:2]
-    if ny >= img_H:
-        ny = 0
+    if ny <0:
+        ny = img_H-1
         nx += 1
         x_plus+=1
     if nx >= img_W:
