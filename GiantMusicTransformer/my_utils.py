@@ -273,13 +273,35 @@ def melody_chords2song_f(melody_chords_f):
 # render_MIDI_to_audio = True # @param {type:"boolean"}
 
 def cast_img_to_input(img):
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    print("sum of image pixels:", img.sum())
+    if img.ndim == 3:
+        if img.shape[2] == 4:  # 检查是否有透明通道
+
+            # 将透明通道转换为灰度值
+            alpha_channel = img[:, :, 3]
+            print("sum of alpha_channel pixels:", alpha_channel.sum())
+            # 将透明通道的值应用到灰度图像上
+            gray_image = cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2GRAY)
+            print("sum of gray_image pixels:", gray_image.sum())
+            gray_image = cv2.bitwise_and(gray_image, gray_image, mask=alpha_channel)
+            print("sum of alpha_channel pixels:", img.sum())
+            img = alpha_channel
+        else:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        print("sum of cvtColor pixels:", img.sum())
+
 
     # img = 255-img
     img_sum = img.sum()
-    if img_sum > (225*img.shape[0]*img.shape[1])//2:
+    if img_sum > (255*img.shape[0]*img.shape[1])//2:
         print("Image is too bright, inverting it")
         img = 255 - img
+
+    # show image
+    plt.imshow(img, cmap='gray')
+    print("Image shape:", img.shape)
+    print("Image sum:", img_sum)
 
     min_y = img.shape[0]
     min_x = img.shape[1]
@@ -297,6 +319,7 @@ def cast_img_to_input(img):
                 if x > max_x:
                     max_x = x
     img = img[max(0, min_y-10):min(max_y+10, img.shape[0]), min_x:max_x]
+    print("Image shape after cropping:", img.shape)
 
     h, w = img.shape
 
