@@ -617,7 +617,7 @@ class AutoregressiveWrapper(Module):
             middle_y = int(middle_y // cnt_cal_middle)
         middle_y = max(middle_y, default_middle_y-15)
         middle_y = min(middle_y, default_middle_y+15)
-        print("middle_y:", middle_y, "cnt_cal_middle:", cnt_cal_middle)
+        # print("middle_y:", middle_y, "cnt_cal_middle:", cnt_cal_middle)
 
 
         ave_dur = 0 
@@ -629,7 +629,7 @@ class AutoregressiveWrapper(Module):
         if dur_cnt > 0:
             ave_dur = int(ave_dur // dur_cnt)
 
-        print("ave_dur:", ave_dur)
+        # print("ave_dur:", ave_dur)
 
 
 
@@ -687,39 +687,39 @@ class AutoregressiveWrapper(Module):
                         
                         
             # [MY] here to reweight logists
-            print("="*70)
-            print("sl:", sl)
-            print("img_px:", img_px, "img_py:", img_py, "ntime:", ntime, "ndur:", ndur, "npit:", npit)
+            # print("="*70)
+            # print("sl:", sl)
+            # print("img_px:", img_px, "img_py:", img_py, "ntime:", ntime, "ndur:", ndur, "npit:", npit)
             gen = False
             if img_px != None:
                 now_x = int(ntime/1000*4)
                 if img_px > now_x:
                     if img_px - now_x > 10:
-                        print("in branch 1")
+                        # print("in branch 1")
                         pass
                     elif sl%3==0:
-                        print("in branch 2")
+                        # print("in branch 2")
                         logits[0, :5] *= -10 # force a jump
                 elif img_px < now_x:
-                    print("in branch 3")
+                    # print("in branch 3")
                     while img_px < now_x:
                         img_px, img_py = find_nxt_pixel(img, img_px, img_py)
                         if img_px == None:
                             break
                 if img_px == now_x:
                     if sl%3==0:
-                        print("in branch 4")
+                        # print("in branch 4")
                         if num_midis_same_time <=5:
                             logits[0, :3] *=10 # force unmove
                         else:
                             logits[0, :3] *= -10 # force a jump
                     elif sl%3==1:
-                        print("in branch 5")
+                        # print("in branch 5")
                         pass
                         # [TODO]
                     else:
                         if img_py<=npit:
-                            print("in branch 6")
+                            # print("in branch 6")
                             if torch.rand(1) < 0.95:
                                 tar_y = img_py - (img_H//2) + middle_y
                                 logits[:, tar_y-1:tar_y+3] *= 10
@@ -729,7 +729,7 @@ class AutoregressiveWrapper(Module):
                                     added_x = new_img_px - img_px
                                 img_px, img_py = new_img_px, new_img_py
                         else:
-                            print("in branch 7")
+                            # print("in branch 7")
                             new_img_px, new_img_py = find_nxt_pixel(img, img_px, img_py)
                             while new_img_px == now_x and new_img_py > npit:
                                 new_img_px, new_img_py = find_nxt_pixel(img, new_img_px, new_img_py)
@@ -769,7 +769,7 @@ class AutoregressiveWrapper(Module):
                     draw_y = sample[0] -middle_y + img_H//2
                     npit = int(draw_y)
                     img[draw_y-2:draw_y+3, int(ntime/1000*4):int((ntime+ndur)/1000*4)+1] = 0
-                    print("drawing in img at:", draw_y, int(ntime/1000*4), int((ntime+ndur)/1000*4))
+                    # print("drawing in img at:", draw_y, int(ntime/1000*4), int((ntime+ndur)/1000*4))
             
 
             out = torch.cat((out, sample), dim=-1)

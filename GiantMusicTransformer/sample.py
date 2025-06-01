@@ -252,7 +252,7 @@ def generate_midi():
         print("sum of castedimg:", castedimg.sum())
         print("ratio: ", outimg.sum() / castedimg.sum())
 
-        if outimg.sum() / castedimg.sum() < 0.05:
+        if outimg.sum() / castedimg.sum() < 0.08:
             Fail = False
             full_music = full_music + melody_chords_f[-number_of_tokens_to_generate:]
         else:

@@ -104,48 +104,48 @@ def filter_images(raster_images, sum_interval = [1000, 4000]):
             filtered_images.append(img)
     return filtered_images
 
-vector_images = []
+# vector_images = []
 
-cnt = 0
+# cnt = 0
 
-for drawing in unpack_drawings('full_binary_eye.bin'):
-    # do something with the drawing
-    # print(drawing['country_code'])
-    vector_images.append(drawing['image'])
-    cnt+=1
-    if cnt % 100 == 0:
-        print(cnt)
+# for drawing in unpack_drawings('full_binary_eye.bin'):
+#     # do something with the drawing
+#     # print(drawing['country_code'])
+#     vector_images.append(drawing['image'])
+#     cnt+=1
+#     if cnt % 100 == 0:
+#         print(cnt)
     
-# vector_images = vector_images[:10000]
-raster_images = vector_to_raster(vector_images, side=100, line_diameter=16, padding=16)
-# print(raster_images[0].shape)
+# # vector_images = vector_images[:10000]
+# raster_images = vector_to_raster(vector_images, side=100, line_diameter=16, padding=16)
+# # print(raster_images[0].shape)
 
-filtered_images = filter_images(raster_images, sum_interval=[1000, 4000])
-# filtered_images = raster_images
-print("Filtered images:", len(filtered_images))
+# filtered_images = filter_images(raster_images, sum_interval=[1000, 4000])
+# # filtered_images = raster_images
+# print("Filtered images:", len(filtered_images))
 
-# plt.imshow(raster_images[0].reshape(100,100), cmap='gray')
-# plt.title("QuickDraw Visualization")
+# # plt.imshow(raster_images[0].reshape(100,100), cmap='gray')
+# # plt.title("QuickDraw Visualization")
+# # plt.show()
+# # plt.savefig("quickdraw.png")
+
+# filtered_images = np.array(filtered_images).reshape(-1, 100, 100).astype(np.uint8)
+
+# # save the raster images to a file
+# print("Saving raster images to file...")
+# np.save('eye_100.npy', filtered_images)
+# print("Saved.")
+
+# # sample 100 imgs and show
+# sample = filtered_images[:25]
+# sample = np.array(sample)
+# sample = sample.reshape(-1, 100, 100)
+# print(sample.shape)
+# for i in range(sample.shape[0]):
+#     plt.subplot(5, 5, i+1)
+#     plt.imshow(sample[i], cmap='gray')
+#     plt.title(f"Sum : {sample[i].sum()//255}")
+#     plt.axis('off')
+# # plt.tight_layout()
 # plt.show()
-# plt.savefig("quickdraw.png")
-
-filtered_images = np.array(filtered_images).reshape(-1, 100, 100).astype(np.uint8)
-
-# save the raster images to a file
-print("Saving raster images to file...")
-np.save('eye_100.npy', filtered_images)
-print("Saved.")
-
-# sample 100 imgs and show
-sample = filtered_images[:25]
-sample = np.array(sample)
-sample = sample.reshape(-1, 100, 100)
-print(sample.shape)
-for i in range(sample.shape[0]):
-    plt.subplot(5, 5, i+1)
-    plt.imshow(sample[i], cmap='gray')
-    plt.title(f"Sum : {sample[i].sum()//255}")
-    plt.axis('off')
-# plt.tight_layout()
-plt.show()
-plt.savefig("quickdraw_sample.png")
+# plt.savefig("quickdraw_sample.png")

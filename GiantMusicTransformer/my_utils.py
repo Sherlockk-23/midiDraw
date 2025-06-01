@@ -15,9 +15,9 @@ torch.backends.cuda.enable_mem_efficient_sdp(True)
 torch.backends.cuda.enable_math_sdp(True)
 torch.backends.cuda.enable_flash_sdp(True)
 torch.backends.cuda.enable_cudnn_sdp(True)
-import TMIDIX
-from midi_to_colab_audio import midi_to_colab_audio
-from x_transformer_1_23_2 import *
+# import TMIDIX
+# from midi_to_colab_audio import midi_to_colab_audio
+# from x_transformer_1_23_2 import *
 import random
 import matplotlib.pyplot as plt
 from torchsummary import summary
@@ -25,6 +25,8 @@ from sklearn import metrics
 from IPython.display import Audio, display
 from huggingface_hub import hf_hub_download
 import cv2
+
+import torch.nn.functional as F
 
 
 def get_model_path(select_model_to_load, full_path_to_models_dir):
@@ -335,6 +337,16 @@ def cast_img_to_input(img):
 
 
     return img
+
+def top_p(logits, thres = 0.9):
+    sorted_logits, sorted_indices = torch.sort(logits, descending = True)
+    cum_probs = torch.cumsum(F.softmax(sorted_logits, dim = -1), dim = -1)
+
+    sorted_indices_to_remove = cum_probs > thres
+    sorted_indices_to_remove = F.pad(sorted_indices_to_remove, (1, -1), value = False)
+
+    sorted_logits[sorted_indices_to_remove] = float('-inf')
+    return sorted_logits.scatter(1, sorted_indices, sorted_logits)
 
 def generate_with_img(model, melody_chords_f, img, ctx, 
                       number_of_tokens_to_generate=2048, 
