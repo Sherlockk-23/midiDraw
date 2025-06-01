@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>MIDI Renderer</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <link rel="stylesheet" href="css/piano-roll.css" />
+</head>
+<body>
+    <input type="file" id="imageInput" accept="image/*" />
+    <button id="clearBtn">Clear</button>
+    <button id="initBtn">Init</button>
+    <canvas id="drawCanvas" width="1000" height="400"></canvas>
+    <input type="file" id="fileInput" accept=".mid" />
+    <div id="controls">
+        <button onclick="runLocalModelAndDisplay()">Generate</button>
+        <button id="playBtn">Play</button>
+        <button id="pauseBtn">Pause</button>
+    </div>
+    <div id="zoomControls">
+        <button onclick="zoomIn()">+</button>
+        <button onclick="zoomOut()">−</button>
+    </div>
+    <div id="canvasContainer" class="canvas-container">
+        <canvas id="pianoRoll" width="1000" height="696"></canvas>
+    </div>
+
+    <script src="libs/Tone.js"></script>
+    <script src="libs/Midi.min.js"></script>
+    <script src="libs/soundfont-player.min.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/canvas.js"></script>
+    <script src="js/midi.js"></script>
+    <script src="js/controls.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

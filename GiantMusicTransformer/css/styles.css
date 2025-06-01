@@ -1,0 +1,14 @@
+/* 通用样式 */
+body {
+    font-family: Arial, sans-serif;
+}
+
+canvas {
+    border: 1px solid #ccc;
+    display: block;
+    margin-top: 10px;
+}
+
+#controls {
+    margin-top: 10px;
+}

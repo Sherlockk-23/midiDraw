@@ -1,0 +1,9 @@
+/* 钢琴卷帘图样式 */
+#canvasContainer {
+    overflow: auto;
+}
+
+#pianoRoll {
+    border: 1px solid #ccc;
+    cursor: crosshair;
+}
