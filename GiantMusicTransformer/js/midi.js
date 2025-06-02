@@ -9,6 +9,9 @@ const halfStepHeight = 8;
 const audioCtx = new AudioContext();
 const instruments = {};
 const playingNotes = [];
+const ZOOM_STEP = 0.1;
+const minWidth = 1400;
+const minMaxTime = minWidth / 5 / halfStepHeight;
 
 let midi = null;
 let synth = null;
@@ -17,12 +20,12 @@ let startTime = 0;
 let elapsedWhenPaused = 0;
 let animationFrameId = null;
 let zoomLevel = 1.0;
-const ZOOM_STEP = 0.1;
+let maxTime = minMaxTime;
 
 function applyCanvasScale() {
     const canvas = document.getElementById("pianoRoll");
     canvas.style.transform = `scale(${zoomLevel})`;
-    canvas.style.transformOrigin = "top left";
+    canvas.style.transformOrigin = "center left";
 }
 
 function zoomIn() {
@@ -82,10 +85,19 @@ async function runLocalModelAndDisplay() {
 }
 
 fileInput.addEventListener("change", async (e) => {
+    pauseBtn.click();
+    elapsedWhenPaused = 0;
+    isPlaying = false;
+    Tone.Transport.stop();
+    Tone.Transport.cancel();
+    if (synth) synth.dispose();
+    cancelAnimationFrame(animationFrameId);
     const file = e.target.files[0];
     if (!file) return;
     const arrayBuffer = await file.arrayBuffer();
     midi = new Midi(arrayBuffer);
+    zoomLevel = 1.0;
+    applyCanvasScale();
     drawMidi(midi);
 });
 
@@ -93,9 +105,11 @@ function drawMidi(midi, currentTime = 0) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     const notes = midi.tracks.flatMap(track => track.notes);
-    const maxTime = Math.max(...notes.map(n => n.time + n.duration));
     const maxNote = 108, minNote = 21;
     const pitchRange = maxNote - minNote;
+
+    maxTime = Math.max(...notes.map(n => n.time + n.duration));
+    maxTime = Math.max(maxTime, minWidth / 5 / halfStepHeight);
 
     canvas.height = pitchRange * halfStepHeight;
     canvas.width = maxTime * halfStepHeight * 5;
@@ -188,10 +202,8 @@ canvas.addEventListener("click", (e) => {
     if (!midi) return;
 
     const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
+    const clickX = (e.clientX - rect.left) / zoomLevel;
     const canvasWidth = canvas.width;
-
-    const maxTime = Math.max(...midi.tracks.flatMap(t => t.notes.map(n => n.time + n.duration)));
     const targetTime = (clickX / canvasWidth) * maxTime;
 
     // Stop and reset
