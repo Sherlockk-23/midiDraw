@@ -1,9 +1,14 @@
 /* 钢琴卷帘图样式 */
 #canvasContainer {
     overflow: auto;
+    margin-top: 20px;
+    /* border: 1px solid #000000; */
+    padding: 10px;
+    background-color: #619fe1;
+    border-radius: 5px;
 }
 
 #pianoRoll {
-    border: 1px solid #ccc;
+    /* border: 1px solid #3a1d1d; */
     cursor: crosshair;
 }

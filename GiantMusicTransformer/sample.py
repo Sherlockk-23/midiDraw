@@ -43,12 +43,13 @@ app.ctx = None
 
 try_to_generate_outro = False #@param {type:"boolean"}
 try_to_introduce_drums = False # @param {type:"boolean"}
-number_of_tokens_to_generate = 1560 # @param {type:"slider", min:33, max:1024, step:3}
+number_of_tokens_to_generate = 1024 # @param {type:"slider", min:33, max:1024, step:3}
 number_of_batches_to_generate = 1 #@param {type:"slider", min:1, max:16, step:1}
 preview_length_in_tokens = 120 # @param {type:"slider", min:33, max:240, step:3}
 number_of_memory_tokens = 7203 # @param {type:"slider", min:300, max:8190, step:3}
 temperature = 1 # @param {type:"slider", min:0.1, max:1, step:0.05}
 model_sampling_top_p_value = 0.96 # @param {type:"slider", min:0.1, max:1, step:0.01}
+number_of_prime_tokens = 8190
 
 #@markdown Other settings
 
@@ -59,8 +60,11 @@ trim_all_outputs_to_last_chord = False
 
 @app.route("/load-model", methods=['get', 'post'])
 def load_model():
+    
     #@title Load Giant Music Transformer Pre-Trained Model
     select_model_to_load = "482M-8L-Ultra-Fast-Medium" 
+    if app.model is not None:
+        return {"status": "Model already loaded", "model_name": select_model_to_load}
     # @param ["482M-8L-Ultra-Fast-Medium","585M-32L-Very-Fast-Large","786M-44L-Fast-Extra-Large"]
     model_precision = "bfloat16" # @param ["bfloat16", "float16"]
     plot_tokens_embeddings = "None" 
@@ -161,6 +165,22 @@ def load_seed_midi():
         "number_of_tokens": len(prompts),
         "number_of_notes": int(len(prompts) / 3)
     }
+    
+
+def sample_prompt(data_path = "../dataset/adl-piano-midi/aria-midi-v1-pruned-ext/data/ae"):
+    all_midis = os.listdir(data_path)
+    sample_midi = random.choice(all_midis)
+    sample_midi_path = os.path.join(data_path, sample_midi)
+    # sample_midi = TMIDIX.MidiFile(sample_midi_path)
+    score = TMIDIX.midi2single_track_ms_score(open(sample_midi_path, 'rb').read(), recalculate_channels=False)
+    full_prompt = score2melody_chords_f(score, number_of_prime_tokens=number_of_prime_tokens, 
+                                                trim_all_outputs_to_last_chord=trim_all_outputs_to_last_chord)
+    length = len(full_prompt)//3
+    prompt_length = min(100, random.randint(30, length))
+    st = random.randint(0, length-prompt_length)
+    prompt = full_prompt[st*3:(st+prompt_length)*3]
+    print(f"Sampled prompt from {sample_midi_path} with length {len(prompt)//3}")
+    return prompt
 
 
 @app.route("/generate-midi", methods=['get', 'post'])
@@ -183,7 +203,7 @@ def generate_midi():
     #generate output.mid from input.png
 
     model = app.model
-    prompts = app.prompts
+    prompts = sample_prompt()
     ctx = app.ctx
 
     full_music = prompts if prompts is not None else []
@@ -198,22 +218,31 @@ def generate_midi():
 
     Fail  = True
     num_tries = 0
+    best_midi = None
+    best_rate = 1
     while Fail:
+        prompts = sample_prompt()
         prompt_song = full_music[-number_of_memory_tokens+10:]
-        out, outimg, castedimg= generate_with_img(
-            model = model,
-            melody_chords_f = prompt_song,
-            img = image,
-            ctx=ctx,
-            number_of_tokens_to_generate = number_of_tokens_to_generate,
-            number_of_batches_to_generate = number_of_batches_to_generate,
-            number_of_memory_tokens = number_of_memory_tokens,
-            temperature = temperature,
-            model_sampling_top_p_value = model_sampling_top_p_value,
-            try_to_generate_outro = try_to_generate_outro,
-            try_to_introduce_drums = try_to_introduce_drums,
-            allow_model_to_stop_generation_if_needed = allow_model_to_stop_generation_if_needed,
-            )
+        try:
+            out, outimg, castedimg= generate_with_img(
+                model = model,
+                melody_chords_f = prompt_song,
+                img = image,
+                ctx=ctx,
+                number_of_tokens_to_generate = number_of_tokens_to_generate,
+                number_of_batches_to_generate = number_of_batches_to_generate,
+                number_of_memory_tokens = number_of_memory_tokens,
+                temperature = temperature,
+                model_sampling_top_p_value = model_sampling_top_p_value,
+                try_to_generate_outro = try_to_generate_outro,
+                try_to_introduce_drums = try_to_introduce_drums,
+                allow_model_to_stop_generation_if_needed = allow_model_to_stop_generation_if_needed,
+                )
+        except Exception as e:
+            print(f"Error during generation: {e}")
+            num_tries += 1
+            print("Retrying generation...")
+            continue
         out0 = out.tolist()
         melody_chords_f = out0[0]
         melody_chords_f = trim_to_chord(melody_chords_f,
@@ -258,9 +287,22 @@ def generate_midi():
         else:
             print("Image is not good enough, trying again...")
             num_tries += 1
+            if outimg.sum() / castedimg.sum() < best_rate:
+                best_rate = outimg.sum() / castedimg.sum()
+                best_midi = melody_chords_f
             if num_tries > 10:
                 print("Too many tries, stopping...")
                 Fail = False
+                full_music = full_music + melody_chords_f[-number_of_tokens_to_generate:]
+                song_f, patches = melody_chords2song_f(best_midi)
+                patches = [0 if x==-1 else x for x in patches]
+                detailed_stats = TMIDIX.Tegridy_ms_SONG_to_MIDI_Converter(
+                    song_f,
+                    output_signature='Giant Music Transformer',
+                    output_file_name=fname,
+                    track_name='Project Los Angeles',
+                    list_of_MIDI_patches=patches
+                )
 
     return send_file(fname + '.mid', mimetype="audio/midi")
 

@@ -3,14 +3,15 @@
 <head>
     <meta charset="UTF-8" />
     <title>MIDI Renderer</title>
-    <link rel="stylesheet" href="css/styles.css" />
-    <link rel="stylesheet" href="css/piano-roll.css" />
+    <link rel="stylesheet" href="css/styles.css?v=2.0.4" />
+    <link rel="stylesheet" href="css/piano-roll.css?v=2.0.4" />
 </head>
 <body>
-    <input type="file" id="imageInput" accept="image/*" />
+    <h1>MIDI Renderer</h1>
+    <!-- <input type="file" id="imageInput" accept="image/*" /> -->
     <button id="clearBtn">Clear</button>
-    <button id="initBtn">Init</button>
-    <canvas id="drawCanvas" width="1000" height="400"></canvas>
+    <!-- <button id="initBtn">Init</button> -->
+    <canvas id="drawCanvas" width="400" height="400"></canvas>
     <input type="file" id="fileInput" accept=".mid" />
     <div id="controls">
         <button onclick="runLocalModelAndDisplay()">Generate</button>
@@ -31,7 +32,7 @@
     <script src="js/utils.js"></script>
     <script src="js/canvas.js"></script>
     <script src="js/midi.js"></script>
-    <script src="js/controls.js"></script>
+    <script src="js/controls.js?v=1.0.1"></script>
     <script src="js/main.js"></script>
 </body>
 </html>
