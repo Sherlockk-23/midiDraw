@@ -8,19 +8,26 @@
 </head>
 <body>
     <h1>MIDI Renderer</h1>
-    <!-- <input type="file" id="imageInput" accept="image/*" /> -->
-    <button id="clearBtn">Clear</button>
-    <!-- <button id="initBtn">Init</button> -->
-    <canvas id="drawCanvas" width="400" height="400"></canvas>
-    <input type="file" id="fileInput" accept=".mid" />
-    <div id="controls">
-        <button onclick="runLocalModelAndDisplay()">Generate</button>
-        <button id="playBtn">Play</button>
-        <button id="pauseBtn">Pause</button>
+    <div class="center-wrapper">
+        <button id="clearBtn">清空画布</button>
+        <!-- <input type="file" id="imageInput" accept="image/*" /> -->
+        <!-- <button id="initBtn">Init</button> -->
     </div>
-    <div id="zoomControls">
-        <button onclick="zoomIn()">+</button>
-        <button onclick="zoomOut()">−</button>
+    <div class="canvas-div">
+        <canvas id="drawCanvas" width="400" height="400"></canvas>
+    </div>
+    <div class="center-wrapper-down">
+        <input type="file" id="fileInput" accept=".mid" hidden>
+        <button id="midi-input-button">上传 MIDI</button>
+        <button onclick="runLocalModelAndDisplay()">生成 MIDI</button>
+        <button id="playBtn">播放</button>
+        <button id="pauseBtn">暂停</button>
+    </div>
+    <div class="center-wrapper">
+        <div id="zoomControls">
+            <button onclick="zoomIn()">+</button>
+            <button onclick="zoomOut()">−</button>
+        </div>
     </div>
     <div id="canvasContainer" class="canvas-container">
         <canvas id="pianoRoll" width="1000" height="696"></canvas>

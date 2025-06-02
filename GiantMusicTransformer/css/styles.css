@@ -68,3 +68,37 @@ input[type="file"], input[type="button"] {
         height: auto;
     }
 }
+
+.center-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+}
+
+.canvas-div {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 20px;
+}
+
+.center-wrapper-down {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    gap: 10px;
+    margin-top: 50px;
+}
+
+.scroll-container {
+    width: 1400px;
+    height: 696px;
+    margin: 0 auto;
+    display: flex;
+    margin-top: 10px;
+    overflow-x: auto;
+    overflow-y: auto;
+}
