@@ -204,3 +204,7 @@ canvas.addEventListener("click", (e) => {
     elapsedWhenPaused = targetTime;
     drawMidi(midi, elapsedWhenPaused);
 });
+
+document.getElementById("midi-input-button").addEventListener("click", function () {
+    document.getElementById("fileInput").click();
+});
