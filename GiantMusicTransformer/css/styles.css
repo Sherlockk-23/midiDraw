@@ -1,7 +1,7 @@
 /* 通用样式 */
 body {
     font-family: Arial, sans-serif;
-    background-color: #619fe1;
+    background-color: #6c88be;
     color: #243a14;
     margin: 0;
     padding: 20px;
@@ -9,11 +9,12 @@ body {
 
 h1 {
     text-align: center;
-    color: #0d4d0f;
+    color: #a8dea3;
     margin-bottom: 20px;
 }
 
 canvas {
+    background-color: #adc5f3;
     border: 3px solid #000000;
     display: block;
     margin-top: 10px;
@@ -29,7 +30,7 @@ canvas {
 }
 
 button {
-    background-color: #308b33;
+    background-color: #a2d8b7;
     color: rgb(0, 0, 0);
     border: none;
     padding: 10px 20px;
