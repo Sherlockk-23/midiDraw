@@ -503,7 +503,8 @@ class AutoregressiveWrapper(Module):
         pad_value = 0,
         mask_prob = 0.,
         add_attn_z_loss = False,
-        return_cache=False
+        return_cache=False,
+        penalty_reward_tokens=None
     ):
         super().__init__()
         self.pad_value = pad_value
@@ -519,6 +520,9 @@ class AutoregressiveWrapper(Module):
         # whether to add router z-loss
         self.add_attn_z_loss = add_attn_z_loss
         self.return_cache = return_cache
+        
+        
+        self.penalty_reward_tokens = penalty_reward_tokens
 
     # [MY]
     @torch.inference_mode()
@@ -687,9 +691,9 @@ class AutoregressiveWrapper(Module):
                         
                         
             # [MY] here to reweight logists
-            # print("="*70)
-            # print("sl:", sl)
-            # print("img_px:", img_px, "img_py:", img_py, "ntime:", ntime, "ndur:", ndur, "npit:", npit)
+            print("="*70)
+            print("sl:", sl)
+            print("img_px:", img_px, "img_py:", img_py, "ntime:", ntime, "ndur:", ndur, "npit:", npit)
             gen = False
             if img_px != None:
                 now_x = int(ntime/1000*4)
@@ -748,6 +752,309 @@ class AutoregressiveWrapper(Module):
             probs = F.softmax(filtered_logits / temperature, dim=-1)
 
             sample = torch.multinomial(probs, 1)
+            
+            # [MY] here utilize output
+            if True:
+                if sl%3==0:
+                    ntime += sample[0] * 16
+                    ntime = int(ntime)
+                    if sample[0]!=0:
+                        npit = 108
+                        num_midis_same_time = 0
+                    else:
+                        num_midis_same_time += 1
+                    # [TBD]
+                elif sl%3==1:
+                    ndur = ((sample[0]-256) // 8) * 16
+                    ndur = (int(ndur))
+                else:
+                    if sample[0]< 2304 or sample[0] > 2304 + 128:
+                        continue
+                    draw_y = sample[0] -middle_y + img_H//2
+                    npit = int(draw_y)
+                    img[draw_y-2:draw_y+3, int(ntime/1000*4):int((ntime+ndur)/1000*4)+1] = 0
+                    # print("drawing in img at:", draw_y, int(ntime/1000*4), int((ntime+ndur)/1000*4))
+            
+
+            out = torch.cat((out, sample), dim=-1)
+
+            if verbose:
+              if sl % 32 == 0:
+                print(sl, '/', seq_len)
+
+            if exists(eos_token):
+                is_eos_tokens = (out == eos_token)
+
+                if is_eos_tokens.any(dim = -1).all():
+                    # mask out everything after the eos tokens
+                    shifted_is_eos_tokens = F.pad(is_eos_tokens, (1, -1))
+                    mask = shifted_is_eos_tokens.float().cumsum(dim = -1) >= 1
+                    out = out.masked_fill(mask, self.pad_value)
+
+                    if verbose: 
+                      print('Model called the end of sequence at:', sl, '/', seq_len)
+
+                    break
+
+        if return_prime:
+          return out[:, :]
+        
+        else:
+          return out[:, t:]
+      
+      
+    @torch.inference_mode()
+    @eval_decorator
+    def generateWithPicRPM(
+        self,  
+        prompts,
+        img, # get something like (50, None, 1)
+        seq_len,
+        eos_token = None,
+        temperature = 1.,
+        prompt_lens: Optional[Tensor] = None,
+        filter_logits_fn: Callable = top_k,
+        restrict_to_max_seq_len = True,
+        amateur_model: Optional[Union[Module, Tuple[Module]]] = None,
+        filter_kwargs: dict = dict(),
+        contrastive_decode_kwargs: Union[dict, Tuple[dict]] = dict(
+            beta = 0.5,
+            alpha = 0.1
+        ),
+        cache_kv = True,
+        verbose=True,
+        return_prime=False,
+        **kwargs
+    ):
+        print("prompts shape:", prompts.shape)
+        print("img shape:", img.shape)
+        max_seq_len, device = self.max_seq_len, prompts.device
+
+        prompts, ps = pack([prompts], '* n')
+
+        b, t = prompts.shape
+        
+        # [MY] rescale img to (50, *, 1)
+        assert(img.shape[0] == 50), "img should be (50, *)"
+        # img = img.reshape(1, 1, img.shape[0], img.shape[1])
+        # img_H = 50
+        # img_scale = img_H / img.shape[0]
+        # # img = F.interpolate(img, size = (img_H, int(img.shape[2] * img_scale)), mode = 'bilinear', align_corners = False)
+        # # use a numpy function to resize, not F.interpolate
+        # img = img.squeeze(0).squeeze(0).numpy()
+        # # img = cv2.resize(img, (int(img.shape[1] * img_scale), img_H), interpolation=cv2.INTER_LINEAR)
+        img_H = img.shape[0]
+        img_W = img.shape[1]
+        img = img.reshape(img_H, img_W)
+
+        # handle variable lengthed prompts (prefixes)
+
+        seq_start_pos = None
+        if exists(prompt_lens):
+            prompts = align_right(prompts, prompt_lens, pad_id = self.pad_value)
+            seq_start_pos = t - prompt_lens
+
+        # output from which sampled tokens appended to
+
+        out = prompts
+
+        if verbose:
+          print("Generating sequence of max length:", seq_len)
+
+        # kv caches
+
+        cache = None
+
+        # if doing contrastive decoding, turn off filter automatically
+
+        if exists(amateur_model):
+            amateur_model = cast_tuple(amateur_model)
+            contrastive_decode_kwargs = cast_tuple(contrastive_decode_kwargs)
+
+            assert len(amateur_model) == len(contrastive_decode_kwargs)
+
+            amateur_caches = [None] * len(amateur_model)
+            filter_logits_fn = identity
+
+            for i, module in enumerate(amateur_model):
+                if isinstance(module, AutoregressiveWrapper):
+                    amateur_model[i] = module.net
+
+                module.eval()
+
+        # sampling up to seq_len
+        
+        # [MY] init pointers 
+        # [0,256], [256, 2304], [2304, 2304+128]
+        default_middle_y = 2304 + 65 
+        # if prompts[0,-4] > 2304+20 and prompts[0,-4] < 2304+80:
+        #     middle_y = prompts[0,-4]
+        middle_y = 0
+        cnt_cal_middle = 0
+        for i in range(2, len(prompts[0])-1, 3):
+            if prompts[0, i] > 2304 and prompts[0, i] < 2304 + 128:
+                middle_y += prompts[0, i]
+                cnt_cal_middle += 1
+        if cnt_cal_middle > 0:
+            middle_y = int(middle_y // cnt_cal_middle)
+        middle_y = max(middle_y, default_middle_y-15)
+        middle_y = min(middle_y, default_middle_y+15)
+        # print("middle_y:", middle_y, "cnt_cal_middle:", cnt_cal_middle)
+
+
+        ave_dur = 0 
+        dur_cnt = 0
+        for i in range(1, len(prompts[0])-1, 3):
+            if prompts[0, i] > 256 and prompts[0, i] < 2304:
+                ave_dur += ((prompts[0, i]-256)//8)*16
+                dur_cnt += 1
+        if dur_cnt > 0:
+            ave_dur = int(ave_dur // dur_cnt)
+
+        # print("ave_dur:", ave_dur)
+
+
+
+        img_px, img_py = find_nxt_pixel(img, 0, img_H)
+        added_x = img_px
+        ntime = 0
+        ndur = 0
+        npit = 108
+        handle_none =False
+
+        num_midis_same_time = 0
+
+        for sl in range(seq_len):
+
+            if restrict_to_max_seq_len:
+                x = out[:, -max_seq_len:]
+
+                if exists(cache):
+                    for inter in cache.attn_intermediates:
+                        inter.cached_kv = [t[..., -(max_seq_len - 1):, :] for t in inter.cached_kv]
+                        
+                        
+            penalty_reward_mask = torch.zeros((1, x.shape[1], 19463+1), dtype=torch.float16, device='cuda')
+            print("reward_penalty_mask shape:", penalty_reward_mask.shape)
+
+            
+                        
+                        
+            # [MY] here to reweight logists
+            print("="*70)
+            print("sl:", sl)
+            print("img_px:", img_px, "img_py:", img_py, "ntime:", ntime, "ndur:", ndur, "npit:", npit)
+            gen = False
+            if img_px != None:
+                now_x = int(ntime/1000*4)
+                if img_px > now_x:
+                    if img_px - now_x > 10:
+                        print("in branch 1")
+                        pass
+                    elif sl%3==0:
+                        print("in branch 2")
+                        # logits[0, :5] *= -10 # force a jump
+                        penalty_reward_mask[0, :, :5] = -2 # force a jump
+                elif img_px < now_x:
+                    print("in branch 3")
+                    while img_px < now_x:
+                        img_px, img_py = find_nxt_pixel(img, img_px, img_py)
+                        if img_px == None:
+                            break
+                if img_px == now_x:
+                    if sl%3==0:
+                        print("in branch 4")
+                        if num_midis_same_time <=5:
+                            # logits[0, :3] *=10 # force unmove
+                            penalty_reward_mask[0,:, :3] = 2
+                        else:
+                            # logits[0, :3] *= -10 # force a jump
+                            penalty_reward_mask[0,:, :3] = -2
+                    elif sl%3==1:
+                        print("in branch 5")
+                        pass
+                        # [TODO]
+                    else:
+                        if img_py<=npit:
+                            print("in branch 6")
+                            if torch.rand(1) < 0.95:
+                                tar_y = img_py - (img_H//2) + middle_y
+                                # logits[:, tar_y-1:tar_y+3] *= 10
+                                penalty_reward_mask[0, :, tar_y-1:tar_y+3] = 2
+                                new_img_px, new_img_py, _ = get_next_pos(img, img_px, img_py-1)
+                                new_img_px, new_img_py = find_nxt_pixel(img, new_img_px, new_img_py)
+                                if new_img_px != None:
+                                    added_x = new_img_px - img_px
+                                img_px, img_py = new_img_px, new_img_py
+                        else:
+                            print("in branch 7")
+                            new_img_px, new_img_py = find_nxt_pixel(img, img_px, img_py)
+                            while new_img_px == now_x and new_img_py > npit:
+                                new_img_px, new_img_py = find_nxt_pixel(img, new_img_px, new_img_py)
+                                if new_img_px == None:
+                                    break
+                            if new_img_px != None:
+                                added_x = new_img_px - img_px
+            elif handle_none == False:
+                if sl%3 == 0:
+                    # logits[0,:10]*=-10 # force a jump
+                    penalty_reward_mask[0, :, :10] = -2
+                    handle_none = True
+            # filter by top_k, top_p (nucleus), top_a, or custom
+            
+            # penalty_reward_mask = torch.zeros_like(penalty_reward_mask)
+            print("sum in penalty_reward_mask:", penalty_reward_mask.sum())
+            # print("argmax in penalty_reward_mask:", penalty_reward_mask.argmax(dim=-1).item(), "with value:", penalty_reward_mask[0, -1, penalty_reward_mask.argmax(dim=-1).item()].item())
+            # print("argmin in penalty_reward_mask:", penalty_reward_mask.argmin(dim=-1).item(), "with value:", penalty_reward_mask[0, -1, penalty_reward_mask.argmin(dim=-1).item()].item())
+            
+            logits, new_cache = self.net(
+                x,
+                return_intermediates = True,
+                cache = cache,
+                seq_start_pos = seq_start_pos,
+                penalty_reward_mask=penalty_reward_mask, # [TODO]
+                **kwargs
+            )
+
+            if cache_kv and self.net.can_cache_kv:
+                cache = new_cache
+
+            logits = logits[:, -1]
+            
+            print("logits shape:", logits.shape)
+            print("logits:", logits[0, :20])
+            print("arg max in logits:", logits.argmax(dim=-1).item(), "with value:", logits[0, logits.argmax(dim=-1).item()].item())
+            print("arg min in logits:", logits.argmin(dim=-1).item(), "with value:", logits[0, logits.argmin(dim=-1).item()].item())
+            
+
+            # handle contrastive decoding, Li et al.
+            # https://arxiv.org/abs/2210.15097
+
+            if exists(amateur_model):
+                for i, (amateur, amateur_cache, amateur_contrastive_decode_kwargs) in enumerate(zip(amateur_model, amateur_caches, contrastive_decode_kwargs)):
+                    amateur_logits, next_amateur_cache = amateur(
+                        x,
+                        return_intermediates = True,
+                        cache = amateur_cache,
+                        seq_start_pos = seq_start_pos,
+                        **kwargs
+                    )
+
+                    amateur_logits = amateur_logits[:, -1]
+
+                    assert amateur_logits.shape == logits.shape, 'logits dimension are not the same between amateur and expert model'
+                    logits = contrastive_decode_fn(logits, amateur_logits, **amateur_contrastive_decode_kwargs)
+
+                    if cache_kv and amateur.can_cache_kv:
+                        amateur_caches[i] = next_amateur_cache
+
+            filtered_logits = filter_logits_fn(logits, **filter_kwargs)
+
+            probs = F.softmax(filtered_logits / temperature, dim=-1)
+
+            sample = torch.multinomial(probs, 1)
+            
+            print("sampled token:", sample[0].item())
             
             # [MY] here utilize output
             if True:
@@ -873,6 +1180,7 @@ class AutoregressiveWrapper(Module):
                     for inter in cache.attn_intermediates:
                         inter.cached_kv = [t[..., -(max_seq_len - 1):, :] for t in inter.cached_kv]
 
+            # print("before into net, x shape:", x.shape)
             logits, new_cache = self.net(
                 x,
                 return_intermediates = True,
@@ -880,6 +1188,7 @@ class AutoregressiveWrapper(Module):
                 seq_start_pos = seq_start_pos,
                 **kwargs
             )
+            # print("after into net, logits shape:", logits.shape)
 
             if cache_kv and self.net.can_cache_kv:
                 cache = new_cache
@@ -960,7 +1269,7 @@ class AutoregressiveWrapper(Module):
         acc = num_right / len(labels) 
         return acc
 
-    def forward(self, x, **kwargs):
+    def forward(self, x, penalty_reward_mask = None, **kwargs):
         seq, ignore_index, add_attn_z_loss = x.shape[1], self.ignore_index, self.add_attn_z_loss
 
         inp, target = x[:, :-1], x[:, 1:]
@@ -973,28 +1282,58 @@ class AutoregressiveWrapper(Module):
             indices = rand.topk(num_mask, dim = -1).indices
             mask = ~torch.zeros_like(inp).scatter(1, indices, 1.).bool()
             kwargs.update(self_attn_kv_mask = mask)
+            
+        # print("inp shape:", inp.shape) # inp shape: torch.Size([2, 8192])
 
         logits, cache = self.net(
             inp,
             return_intermediates = True,
             return_attn_z_loss = add_attn_z_loss,
+            penalty_reward_mask = penalty_reward_mask,
             **kwargs
         )
 
+        # print("logits shape:", logits.shape) # logits shape: torch.Size([2, 8192, 19464])
+
         acc = self.compute_accuracy(logits, target)
+        
+        # here to add something
 
         loss = F.cross_entropy(
             rearrange(logits, 'b n c -> b c n'),
             target,
             ignore_index = ignore_index
         )
+        
+        # print("loss :", loss) # ([])
+        
+        if penalty_reward_mask is not None:
+            # 假设penalty_reward_mask是一个二维张量，形状为(batch_size, vocab_size)
+            # logits的形状为(batch_size, seq_len, vocab_size)
+            # 根据penalty_reward_mask的值，对logits进行加权求和，计算损失
+            # 这里只是一个简单的示例，具体的计算方式可以根据实际需求调整
+            # print("penalty_reward_mask shape:", penalty_reward_mask.shape) # (4, 19464)
+            # print("logits shape:", logits.shape) # (4, 8192, 19464)
+            # print("argmax penalty_reward_mask:", torch.argmax(torch.abs(penalty_reward_mask), dim=-1), "with value ", 
+            #       torch.max(torch.abs(penalty_reward_mask), dim=-1).values)
+            # print("argmax in logits:", torch.argmax(logits[:,-1,:], dim=-1),
+            #         "with value ", torch.max(logits[:,-1,:], dim=-1).values)
+            penalty_reward_loss = torch.mean(
+                (logits[:,:,:] * (-penalty_reward_mask)))* 10  # 假设权重为10，可以根据实际需求调整
+            # print("penalty_reward_loss:", penalty_reward_loss)
+            loss = loss + penalty_reward_loss 
 
+
+        
         if add_attn_z_loss:
             loss = loss + cache.attn_z_loss
         
         if self.return_cache:
             return loss, acc, cache
             
+        elif penalty_reward_mask is not None:
+            return loss, penalty_reward_loss, acc
+        
         else:
             return loss, acc
 
@@ -1447,6 +1786,7 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim = -1)
 
 def apply_rotary_pos_emb(t, freqs, scale = 1):
+    # print("apply_rotary_pos_emb, t shape:", t.shape, "freqs shape:", freqs.shape)
     rot_dim, seq_len = freqs.shape[-1], t.shape[-2]
     freqs = freqs[-seq_len:, :]
 
@@ -2406,6 +2746,11 @@ class ViTransformerWrapper(nn.Module):
         x = x.mean(dim = -2)
         return self.mlp_head(x)
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import Optional, List
+
 class TransformerWrapper(nn.Module):
     def __init__(
         self,
@@ -2413,20 +2758,22 @@ class TransformerWrapper(nn.Module):
         num_tokens,
         max_seq_len,
         attn_layers,
-        emb_dim = None,
-        max_mem_len = 0,
-        shift_mem_down = 0,
-        emb_dropout = 0.,
-        post_emb_norm = False,
-        num_memory_tokens = None,
-        memory_tokens_interspersed_every = None,
-        tie_embedding = False,
-        logits_dim = None,
-        use_abs_pos_emb = True,
-        scaled_sinu_pos_emb = False,
-        l2norm_embed = False,
-        emb_frac_gradient = 1., # GLM-130B and Cogview successfully used this, set at 0.1
-        attn_z_loss_weight = 1e-4,
+        emb_dim=None,
+        max_mem_len=0,
+        shift_mem_down=0,
+        emb_dropout=0.,
+        post_emb_norm=False,
+        num_memory_tokens=None,
+        memory_tokens_interspersed_every=None,
+        tie_embedding=False,
+        logits_dim=None,
+        use_abs_pos_emb=True,
+        scaled_sinu_pos_emb=False,
+        l2norm_embed=False,
+        emb_frac_gradient=1.,  # GLM-130B and Cogview successfully used this, set at 0.1
+        attn_z_loss_weight=1e-4,
+        logits_dropout=False,
+        penalty_reward_tokens=None  # New parameter for penalty and reward tokens
     ):
         super().__init__()
         assert isinstance(attn_layers, AttentionLayers), 'attention layers must be one of Encoder or Decoder'
@@ -2441,17 +2788,16 @@ class TransformerWrapper(nn.Module):
         self.shift_mem_down = shift_mem_down
 
         self.l2norm_embed = l2norm_embed
-        self.token_emb = TokenEmbedding(emb_dim, num_tokens, l2norm_embed = l2norm_embed)
+        self.token_emb = TokenEmbedding(emb_dim, num_tokens, l2norm_embed=l2norm_embed)
 
         if not (use_abs_pos_emb and not attn_layers.has_pos_emb):
             self.pos_emb = always(0)
         elif scaled_sinu_pos_emb:
             self.pos_emb = ScaledSinusoidalEmbedding(emb_dim)
         else:
-            self.pos_emb = AbsolutePositionalEmbedding(emb_dim, max_seq_len, l2norm_embed = l2norm_embed)
+            self.pos_emb = AbsolutePositionalEmbedding(emb_dim, max_seq_len, l2norm_embed=l2norm_embed)
 
-        self.emb_frac_gradient = emb_frac_gradient # fraction of the gradient that should go to the embedding, https://arxiv.org/abs/2105.13290
-
+        self.emb_frac_gradient = emb_frac_gradient
         self.post_emb_norm = nn.LayerNorm(emb_dim) if post_emb_norm else nn.Identity()
         self.emb_dropout = nn.Dropout(emb_dropout)
 
@@ -2476,11 +2822,22 @@ class TransformerWrapper(nn.Module):
 
         self.can_cache_kv = self.num_memory_tokens == 0
 
+        # New attributes for penalty and reward tokens
+        self.penalty_reward_tokens = penalty_reward_tokens
+        if penalty_reward_tokens is not None:
+            self.penalty_reward_net = nn.Sequential(
+                nn.Linear(dim + logits_dim, 2*dim),  # 假设dim是模型的维度，可以根据需要调整
+                nn.ReLU(),
+                nn.Linear(2*dim, dim*2),
+                nn.ReLU(),
+                nn.Linear(dim*2, dim)  # 输出维度与模型的维度相同
+            )
+
     def init_(self):
         if self.l2norm_embed:
-            nn.init.normal_(self.token_emb.emb.weight, std = 1e-5)
+            nn.init.normal_(self.token_emb.emb.weight, std=1e-5)
             if not isinstance(self.pos_emb, always):
-                nn.init.normal_(self.pos_emb.emb.weight, std = 1e-5)
+                nn.init.normal_(self.pos_emb.emb.weight, std=1e-5)
             return
 
         nn.init.kaiming_normal_(self.token_emb.emb.weight)
@@ -2488,20 +2845,21 @@ class TransformerWrapper(nn.Module):
     def forward(
         self,
         x,
-        return_embeddings = False,
-        return_logits_and_embeddings = False,
-        return_intermediates = False,
-        mask = None,
-        return_mems = False,
-        return_attn = False,
-        mems = None,
-        pos = None,
-        prepend_embeds = None,
-        sum_embeds = None,
-        return_attn_z_loss = False,
-        attn_z_loss_weight = 1e-4,
-        seq_start_pos = None,
+        return_embeddings=False,
+        return_logits_and_embeddings=False,
+        return_intermediates=False,
+        mask=None,
+        return_mems=False,
+        return_attn=False,
+        mems=None,
+        pos=None,
+        prepend_embeds=None,
+        sum_embeds=None,
+        return_attn_z_loss=False,
+        attn_z_loss_weight=1e-4,
+        seq_start_pos=None,
         cache: Optional[LayerIntermediates] = None,
+        penalty_reward_mask=None,  # New parameter for penalty and reward mask
         **kwargs
     ):
         b, n, device, num_mems, has_memory_tokens, emb_frac_gradient = *x.shape, x.device, self.num_memory_tokens, self.num_memory_tokens > 0, self.emb_frac_gradient
@@ -2510,7 +2868,7 @@ class TransformerWrapper(nn.Module):
         # absolute positional embedding
 
         external_pos_emb = exists(pos) and pos.dtype != torch.long
-        pos_emb = self.pos_emb(x, pos = pos, seq_start_pos = seq_start_pos) if not external_pos_emb else pos
+        pos_emb = self.pos_emb(x, pos=pos, seq_start_pos=seq_start_pos) if not external_pos_emb else pos
         x = self.token_emb(x) + pos_emb
 
         # for summing embeddings passed externally - needs this for self-conditioning in non-autoregressive training
@@ -2521,14 +2879,18 @@ class TransformerWrapper(nn.Module):
         # post embedding norm, purportedly leads to greater stabilization
 
         x = self.post_emb_norm(x)
+        
+        
 
         # whether to append embeds, as in PaLI, for image embeddings
+        
+        # print(f"x after post_emb_norm: {x.shape}")
 
         if exists(prepend_embeds):
             prepend_seq, prepend_dim = prepend_embeds.shape[1:]
             assert prepend_dim == x.shape[-1], 'prepended embeddings need to have same dimensions as text model dimensions'
 
-            x = torch.cat((prepend_embeds, x), dim = -2)
+            x = torch.cat((prepend_embeds, x), dim=-2)
 
         # whether to reduce the gradient going to the embedding, from cogview paper, corroborated by GLM-130B model
 
@@ -2539,6 +2901,8 @@ class TransformerWrapper(nn.Module):
         # embedding dropout
 
         x = self.emb_dropout(x)
+        
+        # print("x after embedding dropout:", x.shape)  # Debugging line to check shape after dropout
 
         x = self.project_emb(x)
 
@@ -2550,51 +2914,91 @@ class TransformerWrapper(nn.Module):
                 assert isinstance(self.attn_layers, Decoder), 'only for decoder'
                 next_seq_len = math.ceil(n / mem_every) * mem_every
 
-                x = pad_at_dim(x, (0, next_seq_len - n), dim = -2, value = 0.)
-                x = rearrange(x, 'b (n m) d -> (b n) m d', m = mem_every)
+                x = pad_at_dim(x, (0, next_seq_len - n), dim=-2, value=0.)
+                x = rearrange(x, 'b (n m) d -> (b n) m d', m=mem_every)
 
-            mem = repeat(self.memory_tokens, 'n d -> b n d', b = x.shape[0])
+            mem = repeat(self.memory_tokens, 'n d -> b n d', b=x.shape[0])
             x, mem_packed_shape = pack((mem, x), 'b * d')
 
             # auto-handle masking after appending memory tokens
             if not exists(mem_every) and exists(mask):
-                mask = pad_at_dim(mask, (num_mems, 0), dim = -1, value = True)
+                mask = pad_at_dim(mask, (num_mems, 0), dim=-1, value=True)
 
             if exists(mem_every):
-                x = rearrange(x, '(b n) m d -> b (n m) d', b = b)
+                x = rearrange(x, '(b n) m d -> b (n m) d', b=b)
 
         if self.shift_mem_down and exists(mems):
             mems_l, mems_r = mems[:self.shift_mem_down], mems[self.shift_mem_down:]
             mems = [*mems_r, *mems_l]
 
-        x, intermediates = self.attn_layers(x, mask = mask, mems = mems, cache = cache, return_hiddens = True, seq_start_pos = seq_start_pos, **kwargs)
+        # print("x before attention layers:", x.shape) # (2, 8192, 2048)
+        
+        # New logic for penalty and reward tokens
+        # print("before penalty_reward_mask layers:", x.shape)  # Debugging line to check shape before attention layers
+        if penalty_reward_mask is not None:
+            # pass
+            penalty_reward_emb = self.penalty_reward_net(torch.cat([x[:, :, :], penalty_reward_mask], dim=-1))
+            x[:, :, :] += penalty_reward_emb  # Assuming penalty_reward_mask is of shape (b, 1)
 
+
+        # print("before attention layers:", x.shape)  # Debugging line to check shape before attention layers
+        x, intermediates = self.attn_layers(x, mask=mask, mems=mems, cache=cache, return_hiddens=True, seq_start_pos=seq_start_pos, **kwargs)
+
+        # print("x after attention layers:", x.shape) # (2, 8192, 2048)
+        
         if has_memory_tokens:
             if exists(mem_every):
-                x = rearrange(x, 'b (n m) d -> (b n) m d', m = (mem_every + num_mems))
+                x = rearrange(x, 'b (n m) d -> (b n) m d', m=(mem_every + num_mems))
 
             mem, x = unpack(x, mem_packed_shape, 'b * d')
 
             if exists(mem_every):
-                x = rearrange(x, '(b n) m d -> b (n m) d', b = b)
+                x = rearrange(x, '(b n) m d -> b (n m) d', b=b)
 
             x = x[:, :n]
+        #     print("x after unpacking memory tokens:", x.shape)  # Debugging line to check shape after unpacking memory tokens
+            
+        # print("x before to_logits:", x.shape)  # Debugging line to check shape before logits
+            # print(f"x after unpacking memory tokens: {x.shape}") # (2, 8192, 2048)
+            
+        
+        # print("x contains NaN before to_logits:", torch.isnan(x).any())  # Debugging line to check NaN after attention layers
+        # print("x contains Inf before to_logits:", torch.isinf(x).any())  # Debugging line to check Inf after attention layers
 
         if return_logits_and_embeddings:
+            print("branch 1")
             out = (self.to_logits(x), x)
         elif return_embeddings:
+            print("branch 2")
             out = x
         else:
+            # print("branch 3")
+            # print("to logits:", self.to_logits)
+            # print("contains NaN in to_logits:", torch.isnan(self.to_logits.weight).any())  No Nan
+            # print("contains Inf in to_logits:", torch.isinf(self.to_logits.weight).any())  No Inf
+            # print("x contains NaN before to_logits:", torch.isnan(x).any())  # Debugging line to check NaN before logits
+            # print("x contains Inf before to_logits:", torch.isinf(x).any())  # Debugging line to check Inf before logits
+            # print("min in x", x.min())
+            # print("max in x", x.max())
+            # print("min in to_logits weight", self.to_logits.weight.min())
+            # print("max in to_logits weight", self.to_logits.weight.max())
+            # here is a Floating point exception to be debugged
+            # see if x is all float
+            # print("x dtype:", x.dtype)  # float32
+            # print("to_logits weight dtype:", self.to_logits.weight.dtype)  # float32
+            
             out = self.to_logits(x)
+        
+        # print("out after to_logits:", out.shape)  # Debugging line to check shape after logits
 
         if return_attn_z_loss:
             pre_softmax_attns = list(map(lambda t: t.pre_softmax_attn, intermediates.attn_intermediates))
-            intermediates.attn_z_loss = calc_z_loss(pre_softmax_attns, weight = attn_z_loss_weight)
+            intermediates.attn_z_loss = calc_z_loss(pre_softmax_attns, weight=attn_z_loss_weight)
             return_intermediates = True
 
         if return_mems:
             hiddens = intermediates.hiddens
-            new_mems = list(map(lambda pair: torch.cat(pair, dim = -2), zip(mems, hiddens))) if exists(mems) else hiddens
+            new_mems = list(map(lambda pair: torch.cat(pair, dim=-2), zip(mems, hiddens))) if exists(mems) else hiddens
             new_mems = list(map(lambda t: t[..., -self.max_mem_len:, :].detach(), new_mems))
 
             if not return_intermediates:

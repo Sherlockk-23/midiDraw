@@ -58,6 +58,9 @@ def get_model_path(select_model_to_load, full_path_to_models_dir):
                             )
     elif select_model_to_load == '482M-8L-Ultra-Fast-Medium':
         model_checkpoint_file_name = 'Giant_Music_Transformer_Medium_Trained_Model_42174_steps_0.5211_loss_0.8542_acc.pth'
+        # model_checkpoint_file_name = "model_checkpoint_1001_steps_1.8746_loss_0.5038_acc.pth"
+        # model_checkpoint_file_name = "model_checkpoint_1601_steps_1.0428_loss_0.6269_acc.pth"
+        # model_checkpoint_file_name = "new_model_checkpoint_401_steps_1.8169_loss_0.4837_acc.pth"
         model_path = full_path_to_models_dir+'/Medium/'+model_checkpoint_file_name
         mdim = 2048
         num_layers = 8
@@ -357,7 +360,8 @@ def generate_with_img(model, melody_chords_f, img, ctx,
                       allow_model_to_stop_generation_if_needed=False,
                       try_to_generate_outro=False,
                       try_to_introduce_drums=False,
-                      only_out = False):
+                      only_out = False,
+                      try_RPM = False):
 
     if allow_model_to_stop_generation_if_needed:
         min_stop_token = 19462
@@ -391,14 +395,24 @@ def generate_with_img(model, melody_chords_f, img, ctx,
 
     with ctx:
         with torch.inference_mode():
-            out = model.generateWithPic(inp,img,
-                                number_of_tokens_to_generate,
-                                filter_logits_fn=top_p,
-                                filter_kwargs={'thres': model_sampling_top_p_value},
-                                temperature=temperature,
-                                return_prime=False,
-                                eos_token=min_stop_token,
-                                verbose=True)
+            if try_RPM:
+                out = model.generateWithPicRPM(inp, img,
+                                               number_of_tokens_to_generate,
+                                               filter_logits_fn=top_p,
+                                               filter_kwargs={'thres': model_sampling_top_p_value},
+                                               temperature=temperature,
+                                               return_prime=False,
+                                               eos_token=min_stop_token,
+                                               verbose=True)
+            else:
+                out = model.generateWithPic(inp,img,
+                                    number_of_tokens_to_generate,
+                                    filter_logits_fn=top_p,
+                                    filter_kwargs={'thres': model_sampling_top_p_value},
+                                    temperature=temperature,
+                                    return_prime=False,
+                                    eos_token=min_stop_token,
+                                    verbose=True)
             
     if only_out:
         return out

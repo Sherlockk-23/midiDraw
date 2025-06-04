@@ -203,7 +203,8 @@ def generate_midi():
     #generate output.mid from input.png
 
     model = app.model
-    prompts = sample_prompt()
+    # prompts = sample_prompt()
+    prompts = app.prompts
     ctx = app.ctx
 
     full_music = prompts if prompts is not None else []
@@ -290,7 +291,7 @@ def generate_midi():
             if outimg.sum() / castedimg.sum() < best_rate:
                 best_rate = outimg.sum() / castedimg.sum()
                 best_midi = melody_chords_f
-            if num_tries > 10:
+            if num_tries > 5:
                 print("Too many tries, stopping...")
                 Fail = False
                 full_music = full_music + melody_chords_f[-number_of_tokens_to_generate:]
@@ -308,3 +309,4 @@ def generate_midi():
 
 if __name__ == "__main__":
     app.run(port=5000)
+    # app.run(host='0.0.0.0', port=5000)
