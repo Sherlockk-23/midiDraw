@@ -65,23 +65,37 @@ async function loadModel() {
 async function runLocalModelAndDisplay() {
     const canvas = document.getElementById("drawCanvas");
     const imageData = canvas.toDataURL("image/png");
-    const response = await fetch("http://localhost:5000/generate-midi", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ image: imageData })
-    });
-    console.log("after generation", response);
-    if (!response.ok) {
-        console.error("Failed to fetch MIDI from server");
-        return;
+
+    // 显示加载指示器
+    const loadingIndicator = document.getElementById("loadingIndicator");
+    loadingIndicator.style.display = "block";
+
+    try {
+        const response = await fetch("http://localhost:5000/generate-midi", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ image: imageData })
+        });
+
+        console.log("after generation", response);
+        if (!response.ok) {
+            console.error("Failed to fetch MIDI from server");
+            throw new Error("Failed to fetch MIDI from server");
+        }
+
+        const midiBlob = await response.blob();
+        const arrayBuffer = await midiBlob.arrayBuffer();
+        midi = new Midi(arrayBuffer);
+        elapsedWhenPaused = 0;
+        drawMidi(midi, 0);
+    } catch (error) {
+        console.error("Error:", error);
+    } finally {
+        // 隐藏加载指示器
+        loadingIndicator.style.display = "none";
     }
-    const midiBlob = await response.blob();
-    const arrayBuffer = await midiBlob.arrayBuffer();
-    midi = new Midi(arrayBuffer);
-    elapsedWhenPaused = 0;
-    drawMidi(midi, 0);
 }
 
 fileInput.addEventListener("change", async (e) => {

@@ -2,12 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>MIDI Renderer</title>
+    <title>MIDI Draw</title>
     <link rel="stylesheet" href="css/styles.css?v=2.0.4" />
     <link rel="stylesheet" href="css/piano-roll.css?v=2.0.4" />
 </head>
 <body>
-    <h1>MIDI Renderer</h1>
+    <h1>MIDI Draw</h1>
+    <div class="center-wrapper">
+        <div id="loadingIndicator" class="loading-indicator" style="display: none;">
+            <p>加载中...</p>
+        </div>
+    </div>
     <div class="center-wrapper">
         <button id="clearBtn">清空画布</button>
         <!-- <input type="file" id="imageInput" accept="image/*" /> -->

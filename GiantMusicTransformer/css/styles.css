@@ -103,3 +103,19 @@ input[type="file"], input[type="button"] {
     overflow-x: auto;
     overflow-y: auto;
 }
+
+.loading-indicator {
+    text-align: center;
+    margin: 20px;
+    font-size: 18px;
+    color: #333;
+}
+
+.loading-indicator p {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
