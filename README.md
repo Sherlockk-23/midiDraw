@@ -31,7 +31,24 @@ This is done by combining the hard-coded methods and a large pretrained model ca
 
 ## Evaluation
 
-Except for listening to the generated music and visually comparing it with the input image, we also used a pretrained img-distance measuring model [**TBD**].
+We use [Frechet Audio Distance](https://arxiv.org/abs/1812.08466) to evaluate the performance of our midi generator. To be precise, Frechet Audio Distance (**FAD**) using a pretrained audio classification model (we use VGGish), embeddings are extracted from both the output of a enhancement model that we wish to evaluate and a large database of background music, and after extracting the two groups of embeddings, the Frechet distance is then computed between
+multivariate Gaussians estimated on these embeddings.
+
+Results:
+| Comparison Pair       | Frechet Audio Distance Value (smaller means closer) | Note    |
+|-----------------------|--------------------|------------------------------------------|
+| `waves_gt` & `gen_wav`  | 0.6595358140049611805 |                                          |
+| `waves_gt` & `waves_img` | 16.713074818676360769 |                                          |
+| `waves_gt1` & `waves_gt2` | 0.07102940486668583159 | `1` or `2` suffix indicates the first and second half of the dataset     |
+| `waves_gt1` & `waves_img1` | 16.620743359589181008 | `1` suffix indicates the first half of the dataset  |
+| `waves_img` & `gen_wav`  | 14.831610573498671924 |                      |
+| `waves_gt10` & `gen_wav` | 0.6587375545042890605 | `10` suffix indicates both were clipped to 10 seconds |
+| `waves_gt10` & `waves_img` | 16.732251241549333493 | `10` suffix indicates both were clipped to 10 seconds |
+
+Here, `waves_gt` represents the music from the dataset, `gen_wav` is the music generated using our method, and `waves_img` is music obtained by naively converting images directly to MIDI.
+
+From the results above, it's evident that `waves_gt` and `gen_wav` are very close (approximately `0.66`). This is about 1.5 orders of magnitude smaller than the proximity of `waves_gt` vs `waves_img` (`16.7`). On the other hand, the comparison of `waves_gt1` vs `waves_gt2` yields only `0.07`, which is reasonable. This suggests that the measurement error of this distance metric is roughly `0.07`. Since `0.66` is significantly larger than `0.07`, it indicates the results are highly credible.
+
 
 # How to play
 
