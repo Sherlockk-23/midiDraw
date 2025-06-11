@@ -1,0 +1,3 @@
+[submodule "frechet-audio-distance"]
+    path = frechet-audio-distance
+    url = https://github.com/gudgud96/frechet-audio-distance
