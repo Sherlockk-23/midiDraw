@@ -60,7 +60,7 @@ def get_model_path(select_model_to_load, full_path_to_models_dir):
         model_checkpoint_file_name = 'Giant_Music_Transformer_Medium_Trained_Model_42174_steps_0.5211_loss_0.8542_acc.pth'
         # model_checkpoint_file_name = "model_checkpoint_1001_steps_1.8746_loss_0.5038_acc.pth"
         # model_checkpoint_file_name = "model_checkpoint_1601_steps_1.0428_loss_0.6269_acc.pth"
-        # model_checkpoint_file_name = "new_model_checkpoint_401_steps_1.8169_loss_0.4837_acc.pth"
+        # model_checkpoint_file_name = "new_model_checkpoint_5001_steps_0.7627_loss_0.5112_acc.pth"
         model_path = full_path_to_models_dir+'/Medium/'+model_checkpoint_file_name
         mdim = 2048
         num_layers = 8
